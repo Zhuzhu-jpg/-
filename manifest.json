@@ -1,0 +1,23 @@
+{
+  "name": "NutriFlow - 智能饮食管理",
+  "short_name": "NutriFlow",
+  "description": "拍照识别食物，智能分析营养，管理您的健康饮食",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f472b6",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

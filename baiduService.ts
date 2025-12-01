@@ -1,8 +1,10 @@
 import { FoodItem } from "../types";
 
 // 百度智能云API配置
-const BAIDU_API_KEY = "O0VwFyuVnY9lrUu9B20ROUHQ";
-const BAIDU_SECRET_KEY = "EbsHcdKArky9dfwj6RjMA1Szdbc2dPSj";
+// 在文件顶部修改API配置部分
+// 百度智能云API配置 - 使用环境变量
+const BAIDU_API_KEY = process.env.REACT_APP_BAIDU_API_KEY || "O0VwFyuVnY9lrUu9B20ROUHQ";
+const BAIDU_SECRET_KEY = process.env.REACT_APP_BAIDU_SECRET_KEY || "EbsHcdKArky9dfwj6RjMA1Szdbc2dPSj";
 const ACCESS_TOKEN_URL = "https://aip.baidubce.com/oauth/2.0/token";
 
 // 图像内容理解大模型API

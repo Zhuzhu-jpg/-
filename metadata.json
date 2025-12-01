@@ -1,0 +1,7 @@
+{
+  "name": "NutriFlow Smart Diet",
+  "description": "A scientific calorie management platform featuring AI-powered food recognition (Gemini), daily tracking, and nutritional analysis for healthy fat loss.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { FoodItem } from '../types';
-import { analyzeFoodImage, analyzeFoodText } from '../services/geminiService';
+import { analyzeFoodImage, analyzeFoodText } from '../services/baiduService';
+import { analyzeMultipleFoods, analyzeTextNutrition } from '../services/deepseekService';
 
 interface FoodLoggerProps {
   onAddItems: (items: FoodItem[]) => void;
@@ -11,6 +12,7 @@ const FoodLogger: React.FC<FoodLoggerProps> = ({ onAddItems, onCancel }) => {
   const [mode, setMode] = useState<'text' | 'camera'>('camera');
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isAnalyzingNutrition, setIsAnalyzingNutrition] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   
   const [dishName, setDishName] = useState('');
@@ -33,14 +35,24 @@ const FoodLogger: React.FC<FoodLoggerProps> = ({ onAddItems, onCancel }) => {
       setPreviewUrl(reader.result as string);
       
       try {
+        // 第一步：百度识别食物
         const result = await analyzeFoodImage(base64String);
         setDishName(result.dishName);
-        setDetectedItems(result.items);
+        
+        if (result.items.length > 0) {
+          // 第二步：DeepSeek分析营养
+          setIsAnalyzingNutrition(true);
+          const analyzedItems = await analyzeMultipleFoods(result.items);
+          setDetectedItems(analyzedItems);
+        } else {
+          setDetectedItems(result.items);
+        }
       } catch (err) {
         alert("识别失败，请重试");
         setPreviewUrl(null);
       } finally {
         setIsLoading(false);
+        setIsAnalyzingNutrition(false);
       }
     };
     reader.readAsDataURL(file);
@@ -50,11 +62,14 @@ const FoodLogger: React.FC<FoodLoggerProps> = ({ onAddItems, onCancel }) => {
     if (!inputText.trim()) return;
     setIsLoading(true);
     try {
-      const result = await analyzeFoodText(inputText);
-      setDishName(result.dishName);
-      setDetectedItems(result.items);
+      // 直接使用DeepSeek分析文本描述
+      const items = await analyzeTextNutrition(inputText);
+      if (items.length > 0) {
+        setDishName(items.map(item => item.name).join('+'));
+        setDetectedItems(items);
+      }
     } catch (err) {
-      alert("无法理解该描述");
+      alert("无法分析该描述");
     } finally {
       setIsLoading(false);
     }
@@ -63,11 +78,15 @@ const FoodLogger: React.FC<FoodLoggerProps> = ({ onAddItems, onCancel }) => {
   const handleQuantityChange = (index: number, newQuantity: number) => {
     setDetectedItems(prev => prev.map((item, i) => {
       if (i === index) {
-        const calPerUnit = item.caloriesPerUnit || (item.calories / (item.quantity || 1));
+        // 重新计算营养值（按比例）
+        const scale = newQuantity / (item.quantity || 1);
         return {
           ...item,
           quantity: newQuantity,
-          calories: Math.round(newQuantity * calPerUnit)
+          calories: Math.round(item.calories * scale),
+          protein: Math.round((item.protein || 0) * scale),
+          carbs: Math.round((item.carbs || 0) * scale),
+          fat: Math.round((item.fat || 0) * scale)
         };
       }
       return item;
@@ -76,6 +95,33 @@ const FoodLogger: React.FC<FoodLoggerProps> = ({ onAddItems, onCancel }) => {
 
   const removeItem = (index: number) => {
     setDetectedItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // 重新分析单个食物的营养
+  const reanalyzeNutrition = async (index: number) => {
+    const item = detectedItems[index];
+    try {
+      const nutrition = await analyzeNutritionWithDeepSeek(
+        item.name,
+        item.quantity,
+        item.unit
+      );
+      
+      setDetectedItems(prev => prev.map((food, i) => {
+        if (i === index) {
+          return {
+            ...food,
+            calories: Math.round(nutrition.calories),
+            protein: Math.round(nutrition.protein),
+            carbs: Math.round(nutrition.carbs),
+            fat: Math.round(nutrition.fat)
+          };
+        }
+        return food;
+      }));
+    } catch (error) {
+      alert('重新分析失败');
+    }
   };
 
   const handleConfirm = () => {
@@ -133,7 +179,9 @@ const FoodLogger: React.FC<FoodLoggerProps> = ({ onAddItems, onCancel }) => {
         {isLoading ? (
            <div className="flex-1 flex flex-col items-center justify-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-pink-200 mb-6"></div>
-              <p className="text-pink-300 font-bold animate-pulse">正在识别中...</p>
+              <p className="text-pink-300 font-bold animate-pulse">
+                {isAnalyzingNutrition ? "正在分析营养成分..." : "正在识别食物..."}
+              </p>
            </div>
         ) : detectedItems.length === 0 ? (
           // Input Mode
@@ -174,7 +222,7 @@ const FoodLogger: React.FC<FoodLoggerProps> = ({ onAddItems, onCancel }) => {
                   disabled={!inputText.trim()}
                   className="bg-pink-300 text-white py-4 rounded-[1.5rem] font-bold disabled:opacity-50 shadow-lg shadow-pink-100 hover:bg-pink-400 transition text-lg"
                 >
-                  分析热量 ✨
+                  分析营养成分 ✨
                 </button>
               </div>
             )}
@@ -205,11 +253,23 @@ const FoodLogger: React.FC<FoodLoggerProps> = ({ onAddItems, onCancel }) => {
                  <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
                     <div className="flex justify-between items-center mb-2">
                        <span className="font-bold text-slate-900">{item.name}</span>
-                       <button onClick={() => removeItem(idx)} className="text-slate-300 hover:text-red-400">
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-                       </button>
+                       <div className="flex items-center space-x-2">
+                         <button 
+                           onClick={() => reanalyzeNutrition(idx)}
+                           className="text-xs text-blue-500 bg-blue-50 px-2 py-1 rounded hover:bg-blue-100"
+                           title="重新分析营养"
+                         >
+                           重新分析
+                         </button>
+                         <button onClick={() => removeItem(idx)} className="text-slate-300 hover:text-red-400">
+                           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
+                           </svg>
+                         </button>
+                       </div>
                     </div>
-                    <div className="flex justify-between items-center">
+                    
+                    <div className="flex justify-between items-center mb-3">
                        <div className="flex items-center space-x-2 bg-slate-50 rounded-lg p-1">
                           <input 
                             type="number"
@@ -219,7 +279,25 @@ const FoodLogger: React.FC<FoodLoggerProps> = ({ onAddItems, onCancel }) => {
                           />
                           <span className="text-xs text-slate-400 font-bold pr-2">{item.unit}</span>
                        </div>
-                       <span className="font-bold text-pink-300 text-sm bg-pink-50 px-2 py-1 rounded-md">{item.calories} kcal</span>
+                       <span className="font-bold text-pink-300 text-sm bg-pink-50 px-2 py-1 rounded-md">
+                         {item.calories} kcal
+                       </span>
+                    </div>
+                    
+                    {/* 营养详情 */}
+                    <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                      <div className="text-center p-2 bg-blue-50 text-blue-600 rounded-lg">
+                        <div className="font-bold">{Math.round(item.protein || 0)}g</div>
+                        <div className="text-blue-400">蛋白质</div>
+                      </div>
+                      <div className="text-center p-2 bg-green-50 text-green-600 rounded-lg">
+                        <div className="font-bold">{Math.round(item.carbs || 0)}g</div>
+                        <div className="text-green-400">碳水</div>
+                      </div>
+                      <div className="text-center p-2 bg-yellow-50 text-yellow-600 rounded-lg">
+                        <div className="font-bold">{Math.round(item.fat || 0)}g</div>
+                        <div className="text-yellow-400">脂肪</div>
+                      </div>
                     </div>
                  </div>
                ))}
